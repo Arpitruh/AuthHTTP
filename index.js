@@ -1,90 +1,90 @@
+// Import dependencies
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = "ramdomharkiratilovekiara"
-const app = express();
-app.use(express.json()); 
+const bcrypt = require('bcrypt');
+const path = require('path');
+const cors = require('cors');
 
+// App setup
+const app = express();
+const PORT = 3000;
+const JWT_SECRET = "ramdomharkiratilovekiara";
+
+// Middleware
+app.use(express.json());
+app.use(cors());
+
+// In-memory user store
 const users = [];
 
-// localhost 3000
-app.get("/", function(req, res){
-    res.sendFile(__dirname + "/public/index.html")
-})
+// Serve static files
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
-app.post("/signup", function (req, res) {
-    const username = req.body.username;
-    const password = req.body.password;
+// Signup endpoint
+app.post("/signup", async (req, res) => {
+    const { username, password } = req.body;
 
-    users.push({
-        username: username,
-        password: password
-    })    
-
-    res.json({
-        message: "You are signed up"
-    })
-
-    console.log(users)
-    
-})
-
-app.post("/signin", function(req, res) {
-    
-    const username = req.body.username;
-    const password = req.body.password;
-
-    // maps and filter
-    let foundUser = null;
-
-    for (let i = 0; i<users.length; i++) {
-        if (users[i].username == username && users[i].password == password) {
-            foundUser = users[i]
-        }
+    // Check if user already exists
+    if (users.find(user => user.username === username)) {
+        return res.status(400).json({ message: "User already exists" });
     }
+
+    // Hash password and store user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    users.push({ username, password: hashedPassword });
+
+    res.json({ message: "You are signed up" });
+});
+
+// Signin endpoint
+app.post("/signin", async (req, res) => {
+    const { username, password } = req.body;
+
+    const foundUser = users.find(user => user.username === username);
+    if (foundUser && await bcrypt.compare(password, foundUser.password)) {
+        const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '1h' });
+        return res.json({ token });
+    }
+
+    res.status(403).json({ message: "Invalid username or password" });
+});
+
+// Token verification middleware
+function verifyToken(req, res, next) {
+    const token = req.headers.token;
+    if (!token) {
+        return res.status(403).json({ message: "No token provided" });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).json({ message: "Failed to authenticate token" });
+        }
+        req.username = decoded.username;
+        next();
+    });
+}
+
+// Protected route
+app.get("/me", verifyToken, (req, res) => {
+    const foundUser = users.find(user => user.username === req.username);
 
     if (foundUser) {
-        const token = jwt.sign({
-            username: username,
-            password: password,
-        }, JWT_SECRET) ;
-
-        // foundUser.token = token;
-        res.json({
-            token: token
-        })
+        res.json({ username: foundUser.username });
     } else {
-        res.status(403).send({
-            message: "Invalid username or password"
-        })
+        res.status(404).json({ message: "User not found" });
     }
-    console.log(users)
-})
+});
 
-app.get("/me", function(req, res) {
-    const token = req.headers.token // jwt
-    const decodedInformation = jwt.verify(token, JWT_SECRET);  // {username: "harkirat@gmail.com"}
-    const unAuthDecodedinfo = jwt.decode(token,);  // {username: "harkirat@gmail.com"}
-    const username = decodedInformation.username
-    let foundUser = null;
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ message: "Something went wrong!" });
+});
 
-    for (let i = 0; i < users.length; i++) {
-        if (users[i].username == username)  {
-            foundUser = users[i]
-        }
-    }
-
-    if (foundUser) {
-        res.json({
-            username: foundUser.username,
-            password: foundUser.password
-        })
-    } else {
-        res.json({
-            message: "token invalid"
-        })
-    }
-
-
-})
-
-app.listen(3000);// that the http server is listening on port 3000
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+});
